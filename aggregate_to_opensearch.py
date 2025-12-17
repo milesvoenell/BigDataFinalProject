@@ -9,24 +9,20 @@ logger = logging.getLogger(__name__)
 INDEX_RAW = "nyc_marathon"
 INDEX_AGG = "nyc_marathon_aggregates"
 
-# ----------------------------
-# OpenSearch client
-# ----------------------------
+# OpenSearch client setup
 client = OpenSearch(
     hosts=[{"host": "localhost", "port": 9200}],
     http_auth=("admin", "admin123")
 )
 
-# ----------------------------
-# Load CSV
-# ----------------------------
+# Load the validated CSV
 logger.info("Loading validated CSV for aggregation...")
 df = pl.read_csv("Data/Final_Clean_Data_NYC_validated.csv")
 
-# Normalize column names to lowercase
+# Make all column names lowercase for consistency
 df = df.rename({col: col.lower() for col in df.columns})
 
-# Ensure required columns exist and cast to float
+# Make sure required columns exist and are floats
 for col in ["finish_seconds", "overall", "year"]:
     if col not in df.columns:
         df = df.with_columns([pl.Series(col, [None] * df.height)])
@@ -34,14 +30,12 @@ for col in ["finish_seconds", "overall", "year"]:
 
 logger.info("Computing aggregations...")
 
-# ----------------------------
-# Aggregations (overall only)
-# ----------------------------
+# Aggregations (overall stats only)
 
-# Finishers count per year
+# Count of finishers per year
 finishers_count = df.group_by("year").agg(pl.count().alias("finishers_count"))
 
-# Avg finish time of top 100 overall
+# Average finish time of top 100 runners
 df_100th = df.filter(pl.col("overall") <= 100)
 avg_100th_time = df_100th.group_by("year").agg(
     pl.mean("finish_seconds").alias("avg_100th_place_time")
@@ -50,12 +44,10 @@ avg_100th_time = df_100th.group_by("year").agg(
 # Total runners per year
 total_runners = df.group_by("year").agg(pl.count().alias("total_runners"))
 
-# Winning time per year (minimum finish_seconds)
+# Winning time per year (fastest finish_seconds)
 winning_time = df.group_by("year").agg(pl.min("finish_seconds").alias("winning_time"))
 
-# ----------------------------
-# Join all aggregations
-# ----------------------------
+# Combine all the aggregations into one dataframe
 agg_df = (
     finishers_count
     .join(avg_100th_time, on="year", how="left")
@@ -63,16 +55,13 @@ agg_df = (
     .join(winning_time, on="year", how="left")
 )
 
-# Prepare records for OpenSearch
-# Prepare records for OpenSearch with _index
+# Prepare records for OpenSearch (_index added)
 records = [
     {**{k: (v if v is not None else None) for k, v in row.items()}, "_index": INDEX_AGG}
     for row in agg_df.to_dicts()
 ]
 
-# ----------------------------
 # Upload to OpenSearch
-# ----------------------------
 if client.indices.exists(index=INDEX_AGG):
     client.indices.delete(index=INDEX_AGG)
 client.indices.create(index=INDEX_AGG)
@@ -85,4 +74,4 @@ for ok, item in helpers.streaming_bulk(client, records):
         failed += 1
 
 logger.info(f"Aggregations indexed: {success} succeeded, {failed} failed.")
-logger.info("Done ✔")
+logger.info("Done")
