@@ -1,0 +1,41 @@
+version: '3.9'
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.9.0
+    container_name: opensearch
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_USERNAME=admin
+      - OPENSEARCH_PASSWORD=admin123
+      - plugins.security.disabled=true   # Disable security for local testing
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    networks:
+      - os-net
+
+  dashboards:
+    image: opensearchproject/opensearch-dashboards:2.9.0
+    container_name: dashboards
+    environment:
+      - OPENSEARCH_HOSTS=http://opensearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - opensearch
+    networks:
+      - os-net
+
+volumes:
+  opensearch-data:
+
+networks:
+  os-net:
